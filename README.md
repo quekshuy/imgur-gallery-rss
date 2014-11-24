@@ -18,7 +18,8 @@ export IMGUR_CLIENT_ID=<some_id_of_yours>
 Then to run it:
 
 ```
-> go install github.com/quekshuy/imgur-gallery-rss
+> go get github.com/quekshuy/imgur-gallery-rss && cd $GOPATH/src/github.com/quekshuy/imgur-gallery-rss
+> go install 
 > imgur-gallery-rss
 
 ```
