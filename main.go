@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/garyburd/redigo/redis"
 	"github.com/gorilla/feeds"
 	"io/ioutil"
 	"net/http"
@@ -21,6 +22,27 @@ type imgurobject struct {
 	Title      string `json:"title"`
 	IsAlbum    bool   `json:"is_album"`
 	Id         string `json:"id"`
+}
+
+func (io *imgurobject) TimesEncounteredKey() string {
+	return io.Link + "_count"
+}
+
+func (io *imgurobject) IsRepeat() bool {
+	conn, err := redis.Dial("tcp", ":6379")
+	if err != nil {
+		fmt.Println("Error connecting to redis")
+	} else {
+		newVal, err := redis.Int(conn.Do("INCR", io.TimesEncounteredKey()))
+		if err != nil {
+			fmt.Println("Error sending command to redis")
+		} else {
+			if newVal > 1 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type imgurgallerypage struct {
@@ -98,17 +120,19 @@ func galleryToFeed(galleryPage *imgurgallerypage) *feeds.Feed {
 	fmt.Println("The number of items = ", len(galleryPage.Data))
 	for _, pageItem := range galleryPage.Data {
 		var desc string
-		if pageItem.IsAlbum {
-			desc = getAlbum(&pageItem).Content()
-		} else {
-			desc = "<img src=\"" + pageItem.Link + "\" />"
+		if !((&pageItem).IsRepeat()) {
+			if pageItem.IsAlbum {
+				desc = getAlbum(&pageItem).Content()
+			} else {
+				desc = "<img src=\"" + pageItem.Link + "\" />"
+			}
+			items = append(items, &feeds.Item{
+				Title:       pageItem.Title,
+				Link:        &feeds.Link{Href: pageItem.Link},
+				Description: desc,
+				Created:     now,
+			})
 		}
-		items = append(items, &feeds.Item{
-			Title:       pageItem.Title,
-			Link:        &feeds.Link{Href: pageItem.Link},
-			Description: desc,
-			Created:     now,
-		})
 	}
 	feed.Items = items
 	return feed
