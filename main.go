@@ -29,6 +29,7 @@ func (io *imgurobject) TimesEncounteredKey() string {
 }
 
 func (io *imgurobject) IsRepeat() bool {
+	isRepeat := false
 	conn, err := redis.Dial("tcp", ":6379")
 	if err != nil {
 		fmt.Println("Error connecting to redis")
@@ -38,11 +39,14 @@ func (io *imgurobject) IsRepeat() bool {
 			fmt.Println("Error sending command to redis")
 		} else {
 			if newVal > 1 {
-				return true
+				isRepeat = true
 			}
 		}
 	}
-	return false
+
+	// finally we should set it to expire in 7 days
+	conn.Do("EXPIRE", io.TimesEncounteredKey(), 7*24*60*60)
+	return isRepeat
 }
 
 type imgurgallerypage struct {
