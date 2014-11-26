@@ -10,21 +10,46 @@ import (
 	"time"
 )
 
-const IMGUR_GALLERY_API_ENDPOINT = "https://api.imgur.com/3/gallery/hot/viral/0.json"
+const (
+	IMGUR_API_HOST_PATH        = "https://api.imgur.com/3"
+	IMGUR_GALLERY_API_ENDPOINT = IMGUR_API_HOST_PATH + "/gallery/hot/viral/0.json"
+)
 
 type imgurobject struct {
 	Link       string `json:"link"`
 	ObjectType string `json:"type"`
 	Title      string `json:"title"`
+	IsAlbum    bool   `json:"is_album"`
+	Id         string `json:"id"`
 }
 
 type imgurgallerypage struct {
 	Data []imgurobject `json:"data"`
 }
 
+type imguralbumimageobject struct {
+	Link string `json:"link"`
+}
+
+type imguralbumimages struct {
+	Data []imguralbumimageobject `json:"data"`
+}
+
+func (ia *imguralbumimages) Content() string {
+	content := ""
+	for _, albumImageObj := range ia.Data {
+		content += "<img src=\"" + albumImageObj.Link + "\" /><br />"
+	}
+	return content
+}
+
+func (io *imgurobject) AlbumApiEndpointURL() string {
+	return IMGUR_API_HOST_PATH + "/album/" + io.Id + "/images"
+}
+
 func imgurClientId() string {
 	clientId := os.Getenv("IMGUR_CLIENT_ID")
-	fmt.Println("Environment variables CLIENT_ID = ", clientId)
+	//fmt.Println("Environment variables CLIENT_ID = ", clientId)
 	return clientId
 }
 
@@ -38,30 +63,12 @@ func getFeed() *feeds.Feed {
 	}
 }
 
-func galleryToFeed(galleryPage *imgurgallerypage) *feeds.Feed {
-	// use gorilla feeds to parse into a json RSS feed
-	feed := getFeed()
-	items := []*feeds.Item{}
-	now := time.Now()
-	fmt.Println("The number of items = ", len(galleryPage.Data))
-	for _, pageItem := range galleryPage.Data {
-		items = append(items, &feeds.Item{
-			Title:       pageItem.Title,
-			Link:        &feeds.Link{Href: pageItem.Link},
-			Description: "<img src=\"" + pageItem.Link + "\" />",
-			Created:     now,
-		})
-	}
-	feed.Items = items
-	return feed
-}
-
-func rssHandler(w http.ResponseWriter, r *http.Request) {
-	// query imgur to get the client ID
+func sendApiRequest(url string) []byte {
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", IMGUR_GALLERY_API_ENDPOINT, nil)
+	fmt.Println("Requesting ", url)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		fmt.Println("Error ah : ", err)
+		fmt.Println("Error creating request to " + url)
 	}
 	// add the required header
 	// https://api.imgur.com/oauth2/addclient
@@ -73,7 +80,43 @@ func rssHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fmt.Println("Error reading response body")
 	}
+	return body
+}
+
+func getAlbum(io *imgurobject) *imguralbumimages {
+	body := sendApiRequest(io.AlbumApiEndpointURL())
+	images := imguralbumimages{}
+	json.Unmarshal(body, &images)
+	return &images
+}
+
+func galleryToFeed(galleryPage *imgurgallerypage) *feeds.Feed {
+	// use gorilla feeds to parse into a json RSS feed
+	feed := getFeed()
+	items := []*feeds.Item{}
+	now := time.Now()
+	fmt.Println("The number of items = ", len(galleryPage.Data))
+	for _, pageItem := range galleryPage.Data {
+		var desc string
+		if pageItem.IsAlbum {
+			desc = getAlbum(&pageItem).Content()
+		} else {
+			desc = "<img src=\"" + pageItem.Link + "\" />"
+		}
+		items = append(items, &feeds.Item{
+			Title:       pageItem.Title,
+			Link:        &feeds.Link{Href: pageItem.Link},
+			Description: desc,
+			Created:     now,
+		})
+	}
+	feed.Items = items
+	return feed
+}
+
+func rssHandler(w http.ResponseWriter, r *http.Request) {
 	gallery := imgurgallerypage{}
+	body := sendApiRequest(IMGUR_GALLERY_API_ENDPOINT)
 	json.Unmarshal(body, &gallery)
 	atom, err := galleryToFeed(&gallery).ToAtom()
 	if err != nil {
